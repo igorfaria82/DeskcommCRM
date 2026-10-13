@@ -200,6 +200,9 @@ const schema = z.object({
   // WAHA
   WAHA_API_BASE_URL: required("WAHA_API_BASE_URL"),
   WAHA_API_KEY: required("WAHA_API_KEY"),
+  // Aliases opcionais do Compose; o runtime continua lendo WAHA_API_KEY.
+  CRM_WAHA_API_KEY: z.string().optional().default(""),
+  CRM_WAHA_API_KEY_SHA512: z.string().optional().default(""),
   WAHA_WEBHOOK_BASE_URL: required("WAHA_WEBHOOK_BASE_URL"),
   // Segredo com que o WAHA assina os webhooks. O compose já o entrega ao
   // contêiner do WAHA; o app precisa dele para CONFERIR a assinatura — e não o

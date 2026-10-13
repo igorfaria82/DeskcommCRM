@@ -10,6 +10,15 @@ x-logging: &default-logging
     max-size: "10m"     # rotação: evita que o log encha o disco do VPS
     max-file: "3"
 
+# CA pública para o banco desta instalação no Coolify; nunca contém chave privada.
+x-supabase-ca: &supabase-ca
+  type: bind
+  source: ./coolify/supabase-ca.crt
+  target: /etc/deskcomm/ca/supabase-ca.crt
+  read_only: true
+  bind:
+    create_host_path: false
+
 services:
   app:
     # Teto de memória — 335 MiB de pico MEDIDO nesta VPS.
@@ -58,12 +67,17 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      # Os aliases evitam colisão no painel; as variáveis anteriores continuam válidas.
+      WAHA_API_KEY: ${CRM_WAHA_API_KEY:-${WAHA_API_KEY}}
       SUPABASE_DB_ADMIN_URL: ""
+      NODE_EXTRA_CA_CERTS: /etc/deskcomm/ca/supabase-ca.crt
       # O `worker` deste arquivo drena o event_log em poucos segundos (2 s com
       # fila, até 10 s parado); o webhook de mensagem não precisa mais drenar a
       # fila de todas as organizações dentro da requisição
       # (lib/dev/kick-local-pipeline.ts).
       EVENT_LOG_WORKER_DRAINS: ${EVENT_LOG_WORKER_DRAINS:-true}
+    volumes:
+      - *supabase-ca
     depends_on:
       srh:
         condition: service_started
@@ -127,7 +141,11 @@ services:
     environment:
       # dentro da rede do compose, o WAHA é o serviço 'waha' na porta interna 3000
       WAHA_API_BASE_URL: http://waha:3000
+      WAHA_API_KEY: ${CRM_WAHA_API_KEY:-${WAHA_API_KEY}}
       SUPABASE_DB_ADMIN_URL: ""
+      NODE_EXTRA_CA_CERTS: /etc/deskcomm/ca/supabase-ca.crt
+    volumes:
+      - *supabase-ca
     networks:
       - internal
     healthcheck:
@@ -157,12 +175,14 @@ services:
     # publicado. O instalador grava `latest-2026.7.2` em x86 e
     # `noweb-arm-2026.7.2` em ARM64; as duas tags fixam a versão NOWEB.
     # Bumpar faz parte do release.
-    image: ${WAHA_IMAGE:-devlikeapro/waha:latest-2026.7.2}
+    # Esta instalação usa ARM64 e o Coolify não executa a seleção do instalador.
+    # WAHA_IMAGE explícita continua prevalecendo, inclusive para servidores AMD64.
+    image: ${WAHA_IMAGE:-devlikeapro/waha:noweb-arm-2026.7.2}
     restart: unless-stopped
     environment:
       # Prefixo sha512: faz o WAHA HASHEAR o X-Api-Key recebido e comparar com este
       # hash. Sem o prefixo ele compara literal → o app (que manda o plaintext) toma 401.
-      WAHA_API_KEY: "sha512:${WAHA_API_KEY_SHA512}"
+      WAHA_API_KEY: "sha512:${CRM_WAHA_API_KEY_SHA512:-${WAHA_API_KEY_SHA512}}"
       # Fixo na rede interna, como o WAHA_API_BASE_URL do worker: o WAHA desta
       # stack mora ao lado do `app`, e a rota global só atende a rede interna
       # (app/api/v1/webhooks/waha/route.ts). Lido do .env, um endereço público
@@ -427,13 +447,19 @@ services:
       ARI_URL: "http://asterisk:8088"
       ARI_WS_URL: "ws://asterisk:8088/ari/events"
       ARI_APP: "voice-agent"
+      WAHA_API_KEY: ${CRM_WAHA_API_KEY:-${WAHA_API_KEY}}
       # Como no app e no worker: a conexão do dono do banco fica no .env só
       # para o kit no host (update.sh do cron); nenhum código de workers/ a lê.
       SUPABASE_DB_ADMIN_URL: ""
+      NODE_EXTRA_CA_CERTS: /etc/deskcomm/ca/supabase-ca.crt
+    volumes:
+      - *supabase-ca
     logging: *default-logging
     networks: [internal]
 
   caddy:
+    # O proxy do Coolify atende o site; o Caddy permanece disponível por opt-in.
+    profiles: ["caddy-nao-usado-com-proxy-externo"]
     image: caddy:2-alpine
     restart: unless-stopped
     ports:
